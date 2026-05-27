@@ -26,7 +26,7 @@ class TextSerializer(serializers.ModelSerializer):
 class SessionSerializer(serializers.ModelSerializer):
     class Meta:
         model=Patient
-        fields=['id','full_name','age','gender','patient_id']
+        fields=['id','full_name','age','gender']
 
 class SkinCaseSerializer(serializers.ModelSerializer):
     class Meta:
@@ -38,8 +38,4 @@ class ProfileSerializer(serializers.ModelSerializer):
     class Meta:
         model= Profile
         fields=['phone_number','hospital_name','profile_image']
-        # extra_kwargs = {
-        #     'phone_number': {'required': False},
-        #     'hospital_name': {'required': False},
-        #     'profile_image': {'required': False},
-        # }
+     

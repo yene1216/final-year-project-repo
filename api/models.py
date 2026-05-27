@@ -18,6 +18,7 @@ class CustomUserManager(BaseUserManager):
         user.set_password(password)
         user.save(using=self._db)
         return user
+    
     def create_superuser(self, email, password=None, **extra_fields):
         extra_fields.setdefault('is_staff', True)
         extra_fields.setdefault('is_superuser', True)
@@ -54,7 +55,7 @@ class Patient(models.Model):
     full_name=models.CharField(max_length=255)
     age=models.IntegerField()
     gender=models.CharField(max_length=10,)
-    patient_id=models.CharField(max_length=20)
+    # patient_id=models.CharField(max_length=20)
     def __str__(self):
         return f"{self.user} {self.full_name} {self.age} {self.gender} {self.created_at}"
 

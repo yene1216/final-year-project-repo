@@ -74,7 +74,7 @@ class Answer_end_point(APIView):
                 array_of_zeros[i] = 1
         
         array_of_zeros = array_of_zeros.reshape(1, -1)
-        model=tf.keras.models.load_model("Trained_RNN_model.h5")
+        model=tf.keras.models.load_model("disease_prediction_model.h5")
         prediction=model.predict(array_of_zeros)[0]
         poss_pred=np.argsort(prediction)[-5:][::-1]
         top_five_conf=prediction[poss_pred]
@@ -199,14 +199,27 @@ class Answer_CNN(APIView):
         now=datetime.datetime.now().strftime("%I:%M:%S %p")
         patient_full_name=request.data.get("patientFullName")
         patient_id = None
-        if patient_full_name:
+        if patient_full_name != "undefined":
             patient = Patient.objects.filter(full_name__icontains=patient_full_name,user=request.user).first()
-            if patient:
-                patient_id = patient.id
-                obj=SkinCase.objects.filter(patient_name=patient_full_name,assigned_to=request.user)
-                obj.delete()
-            else:
-                return Response({"error": "Patient not found"},status=404)
+            if not patient:
+                # Patient was referred from a Dermatoscopist — auto-create the record
+                # under the dermatologist so the analysis result can be saved
+                skin_case = SkinCase.objects.filter(
+                    patient_name__icontains=patient_full_name,
+                    assigned_to=request.user
+                ).first()
+                if skin_case:
+                    patient = Patient.objects.create(
+                        user=request.user,
+                        full_name=skin_case.patient_name,
+                        age=0,
+                        gender='unknown'
+                    )
+                else:
+                    return Response({"error": "Patient not found"},status=404)
+            patient_id = patient.id
+            obj=SkinCase.objects.filter(patient_name__icontains=patient_full_name,assigned_to=request.user)
+            obj.delete()
         else:
             patient_id = request.data.get("conversationId")
         patient=Patient.objects.get(id=patient_id,user=request.user)
@@ -222,49 +235,76 @@ class Answer_CNN(APIView):
         return Response({"message":intent,'confidence':confidence,"time":now,"recommendation":recommendation})
 
 class SignUpView(APIView):
-    permission_classes=[AllowAny]
-    authentication_classes=[]
-    def post(self,request):
-        serialized_user=userSerializer(data=request.data)
-        try:
-            if serialized_user.is_valid():
-                user=serialized_user.save()
-                chat_owner=DailyAssessmentLog.objects.create(user=user)
-                refresh=RefreshToken.for_user(user)
-                access_token=str(refresh.access_token)
-                # responser_data={'success':True}
-                is_mobile = request.headers.get("X-Client-Type") == "mobile"
-                if is_mobile:
-                    return Response({
-                        "success": True,
-                        "access_token": str(refresh.access_token),
-                        "refresh_token": str(refresh)
-                    }, status=200)
+    permission_classes = [AllowAny]
+    authentication_classes = []
 
-                response = Response({"success": True}, status=201)
-                response.set_cookie(
-                key="access_token",
-                value=str(refresh.access_token),
-                httponly=True,
-                secure=False,     
-                samesite="Lax",
-                path="/",
+    def post(self, request):
+        serializer = userSerializer(data=request.data)
+
+        if not serializer.is_valid():
+            return Response(
+                {
+                    "success": False,
+                    "errors": serializer.errors
+                },
+                status=400
             )
 
-                response.set_cookie(
-                    key="refresh_token",
-                    value=str(refresh),
-                    httponly=True,
-                    secure=False,
-                    samesite="Lax",
-                    path="/",
-                    max_age=60*60*24*7
-                
-                )
-                return response
-        except ValueError as e:
-            return Response({"error":"email already registered"})
-        return Response({"success":False})
+        try:
+            user = serializer.save()
+
+        except ValueError:
+            return Response(
+                {
+                    "success": False,
+                    "error": "Email already registered"
+                },
+                status=400
+            )
+
+        DailyAssessmentLog.objects.create(user=user)
+
+        refresh = RefreshToken.for_user(user)
+        access_token = str(refresh.access_token)
+        refresh_token = str(refresh)
+
+        is_mobile = request.headers.get("X-Client-Type") == "mobile"
+
+        if is_mobile:
+            return Response(
+                {
+                    "success": True,
+                    "access_token": access_token,
+                    "refresh_token": refresh_token
+                },
+                status=201
+            )
+
+        response = Response(
+            {"success": True},
+            status=201
+        )
+
+        response.set_cookie(
+            key="access_token",
+            value=access_token,
+            httponly=True,
+            secure=False,
+            samesite="Lax",
+            path="/",
+        )
+
+        response.set_cookie(
+            key="refresh_token",
+            value=refresh_token,
+            httponly=True,
+            secure=False,
+            samesite="Lax",
+            path="/",
+            max_age=60 * 60 * 24 * 7
+        )
+
+        return response
 
 class LoginView(APIView):
     permission_classes = [AllowAny]
@@ -273,7 +313,6 @@ class LoginView(APIView):
     def post(self, request):
         email = request.data.get("email")
         password = request.data.get("password")
-        print(email,password)
         user = authenticate(email=email, password=password)
         if not user:
             return Response({"detail": "Invalid credentials"}, status=401)
@@ -287,7 +326,6 @@ class LoginView(APIView):
             }, status=200)
 
         response = Response({"success": True}, status=200)
-
         response.set_cookie(
             key="access_token",
             value=str(refresh.access_token),
@@ -440,8 +478,9 @@ def request_password_reset(request):
     token = PasswordResetTokenGenerator().make_token(user)
     uid = urlsafe_base64_encode(force_bytes(user.pk))
     reset_link = f"http://localhost:5173/reset-password/{uid}/{token}"  
-    if request.headers.get('X-Client-Type') == 'mobile':
-         reset_link = f"cameraapp2://reset-password/{uid}/{token}"  
+    
+    # if request.headers.get('X-Client-Type') == 'mobile':
+    #      reset_link = f"cameraapp2://reset-password/{uid}/{token}"  
 
     
     # html_content = f'Click this link to reset your password: <a href="{reset_link}">Reset Password</a>'
@@ -478,7 +517,8 @@ def confirm_password_reset(request, uidb64, token):
 class dermatologist_list(APIView):
     permission_classes=[IsAuthenticated]
     def get(self,request):
-        # Dermatoscopist
+        users = User.objects.all()
+       
         print("user role",request.user.role)
         if request.user.role == 'Dermatoscopist':
             user=User.objects.filter(role="Dermatologist")
@@ -497,6 +537,7 @@ class ProfileView(APIView):
         return Response({"message":"could't save"})
     def get(self,request):
         try:
+            print("user:",request.user)
             profile=Profile.objects.get(user=request.user)
             serialized=ProfileSerializer(instance=profile)
             return Response(serialized.data)
