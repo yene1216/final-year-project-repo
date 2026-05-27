@@ -11,10 +11,10 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 """
 
 from pathlib import Path
-<<<<<<< HEAD
+# <<<<<<< HEAD
 from pathlib import Path
-=======
->>>>>>> dc0500a6646da0802e6b09ee2d85f30ef33e9c95
+# =======
+# >>>>>>> dc0500a6646da0802e6b09ee2d85f30ef33e9c95
 import os
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
